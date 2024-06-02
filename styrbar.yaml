@@ -22,17 +22,20 @@ blueprint:
       name: Mode Helper
       description: Helper to track light mode (RGB or Temperature)
       selector:
-        input_boolean:
+        entity:
+          domain: input_boolean
     color_helper:
       name: Color Helper
       description: Helper to track current color (in RGB mode)
       selector:
-        input_text:
+        entity:
+          domain: input_text
     temp_helper:
       name: Temperature Helper
       description: Helper to track current color temperature (in Temperature mode)
       selector:
-        input_number:
+        entity:
+          domain: input_number
 
 variables:
   remote: !input remote
