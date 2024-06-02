@@ -1,0 +1,247 @@
+blueprint:
+  name: IKEA Styrbar Remote Control
+  description: Control light with IKEA Styrbar remote using ZHA
+  domain: automation
+  input:
+    remote:
+      name: Remote
+      description: IKEA Styrbar remote to use
+      selector:
+        device:
+          integration: zha
+          manufacturer: IKEA of Sweden
+          model: TRADFRI on/off switch
+    light:
+      name: Light
+      description: Light to control
+      selector:
+        target:
+          entity:
+            domain: light
+    mode_helper:
+      name: Mode Helper
+      description: Helper to track light mode (RGB or Temperature)
+      selector:
+        input_boolean:
+    color_helper:
+      name: Color Helper
+      description: Helper to track current color (in RGB mode)
+      selector:
+        input_text:
+    temp_helper:
+      name: Temperature Helper
+      description: Helper to track current color temperature (in Temperature mode)
+      selector:
+        input_number:
+
+variables:
+  remote: !input remote
+  light: !input light
+  mode_helper: !input mode_helper
+  color_helper: !input color_helper
+  temp_helper: !input temp_helper
+
+trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_ieee: !input remote
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target: !input light
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'step' and trigger.event.data.args[0] == 0 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              brightness_step: -10
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'step' and trigger.event.data.args[0] == 1 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              brightness_step: 10
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'move' and trigger.event.data.args[0] == 0 }}"
+        sequence:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ is_state_attr('zha_event', 'device_ieee', remote) and trigger.event.data.command == 'move' }}"
+              sequence:
+                - service: light.turn_on
+                  target: !input light
+                  data:
+                    brightness_step: -10
+                - delay: '00:00:01'
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'move' and trigger.event.data.args[0] == 1 }}"
+        sequence:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ is_state_attr('zha_event', 'device_ieee', remote) and trigger.event.data.command == 'move' }}"
+              sequence:
+                - service: light.turn_on
+                  target: !input light
+                  data:
+                    brightness_step: 10
+                - delay: '00:00:01'
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'stop' }}"
+        sequence: []
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'press' and trigger.event.data.args[0] == 257 }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "off"
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: !input mode_helper
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "on"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input mode_helper
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'press' and trigger.event.data.args[0] == 258 }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "off"
+                sequence:
+                  - service: light.turn_on
+                    target: !input light
+                    data:
+                      color_temp: "{{ (state_attr(light, 'min_mireds') + state_attr(light, 'max_mireds')) // 2 }}"
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input temp_helper
+                    data:
+                      value: "{{ (state_attr(light, 'min_mireds') + state_attr(light, 'max_mireds')) // 2 }}"
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "on"
+                sequence:
+                  - service: light.turn_on
+                    target: !input light
+                    data:
+                      rgb_color: [255, 0, 0]
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input color_helper
+                    data:
+                      value: "255,0,0"
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'press' and trigger.event.data.args[0] == 259 }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "on"
+                sequence:
+                  - service: light.turn_on
+                    target: !input light
+                    data:
+                      rgb_color: >
+                        {% set colors = state_attr(light, 'rgb_color') %}
+                        [{{ (colors[0] + 20) % 256 }}, {{ (colors[1] + 20) % 256 }}, {{ (colors[2] + 20) % 256 }}]
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input color_helper
+                    data:
+                      value: >
+                        {% set colors = state_attr(light, 'rgb_color') %}
+                        {{ (colors[0] + 20) % 256 }},{{ (colors[1] + 20) % 256 }},{{ (colors[2] + 20) % 256 }}
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "off"
+                sequence:
+                  - service: light.turn_on
+                    target: !input light
+                    data:
+                      color_temp: >
+                        {% set temp = state_attr(light, 'color_temp') %}
+                        {{ temp + 10 if temp < state_attr(light, 'max_mireds') else state_attr(light, 'min_mireds') }}
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input temp_helper
+                    data:
+                      value: >
+                        {% set temp = state_attr(light, 'color_temp') %}
+                        {{ temp + 10 if temp < state_attr(light, 'max_mireds') else state_attr(light, 'min_mireds') }}
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.event.data.command == 'press' and trigger.event.data.args[0] == 260 }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "on"
+                sequence:
+                  - service: light.turn_on
+                    target: !input light
+                    data:
+                      rgb_color: >
+                        {% set colors = state_attr(light, 'rgb_color') %}
+                        [{{ (colors[0] - 20) % 256 }}, {{ (colors[1] - 20) % 256 }}, {{ (colors[2] - 20) % 256 }}]
+                  - service: input_text.set_value
+                    target:
+                      entity_id: !input color_helper
+                    data:
+                      value: >
+                        {% set colors = state_attr(light, 'rgb_color') %}
+                        {{ (colors[0] - 20) % 256 }},{{ (colors[1] - 20) % 256 }},{{ (colors[2] - 20) % 256 }}
+              - conditions:
+                  - condition: state
+                    entity_id: !input mode_helper
+                    state: "off"
+                sequence:
+                  - service: light.turn_on
+                    target: !input light
+                    data:
+                      color_temp: >
+                        {% set temp = state_attr(light, 'color_temp') %}
+                        {{ temp - 10 if temp > state_attr(light, 'min_mireds') else state_attr(light, 'max_mireds') }}
+                  - service: input_number.set_value
+                    target:
+                      entity_id: !input temp_helper
+                    data:
+                      value: >
+                        {% set temp = state_attr(light, 'color_temp') %}
+                        {{ temp - 10 if temp > state_attr(light, 'min_mireds') else state_attr(light, 'max_mireds') }}
